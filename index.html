@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🔥 ระบบติดตามไฟป่า เชียงใหม่–ลำพูน — Real-time</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --panel: #111318;
+    --border: #1e2330;
+    --accent: #ff4d1a;
+    --accent2: #ff8c00;
+    --accent3: #ffcc00;
+    --safe: #00e5a0;
+    --text: #e8eaf0;
+    --muted: #5a6070;
+    --mono: 'Share Tech Mono', monospace;
+    --sans: 'Sarabun', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* SCANLINE OVERLAY */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* HEADER */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo-pulse {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(255,77,26,0.7);
+    animation: pulse-ring 1.5s infinite;
+  }
+
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(255,77,26,0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(255,77,26,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,77,26,0); }
+  }
+
+  .title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+
+  .title span { color: var(--accent); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .status-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    border: 1px solid var(--muted);
+    color: var(--muted);
+  }
+
+  .status-badge.live {
+    border-color: var(--safe);
+    color: var(--safe);
+    animation: blink-badge 2s infinite;
+  }
+
+  @keyframes blink-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .next-update {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* LAYOUT */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: calc(100vh - 53px);
+    height: calc(100vh - 53px);
+  }
+
+  /* MAP */
+  #map {
+    width: 100%;
+    height: 100%;
+    background: #0d1117;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* API KEY SECTION */
+  .api-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,77,26,0.05);
+  }
+
+  .api-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .api-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .api-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .api-input:focus { border-color: var(--accent); }
+  .api-input::placeholder { color: var(--muted); }
+
+  .btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 7px 14px;
+    border-radius: 4px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: #ff6633; }
+  .btn:active { transform: scale(0.97); }
+
+  .btn-sm {
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+
+  /* STATS ROW */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stat-box {
+    padding: 10px 14px;
+    border-right: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .stat-box:last-child { border-right: none; }
+
+  .stat-num {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .stat-num.red { color: var(--accent); }
+  .stat-num.orange { color: var(--accent2); }
+  .stat-num.yellow { color: var(--accent3); }
+
+  .stat-label {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.5px;
+  }
+
+  /* FILTER BAR */
+  .filter-bar {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .filter-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  .filter-btn {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .filter-btn.active-high { border-color: var(--accent); color: var(--accent); background: rgba(255,77,26,0.1); }
+  .filter-btn.active-nominal { border-color: var(--accent2); color: var(--accent2); background: rgba(255,140,0,0.1); }
+  .filter-btn.active-low { border-color: var(--accent3); color: var(--accent3); background: rgba(255,204,0,0.1); }
+
+  /* PROVINCE FILTER */
+  .prov-filter {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .prov-chip {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .prov-chip.active {
+    border-color: var(--safe);
+    color: var(--safe);
+    background: rgba(0,229,160,0.08);
+  }
+
+  /* TABLE */
+  .table-header {
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .table-wrap {
+    flex: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .table-wrap::-webkit-scrollbar { width: 4px; }
+  .table-wrap::-webkit-scrollbar-track { background: transparent; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+
+  thead th {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 0.5px;
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(30,35,48,0.5);
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+
+  tbody tr:hover { background: rgba(255,77,26,0.05); }
+
+  tbody td {
+    padding: 7px 10px;
+    color: var(--text);
+    font-size: 11px;
+  }
+
+  .conf-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-weight: 700;
+  }
+
+  .conf-h { background: rgba(255,77,26,0.2); color: var(--accent); }
+  .conf-n { background: rgba(255,140,0,0.2); color: var(--accent2); }
+  .conf-l { background: rgba(255,204,0,0.2); color: var(--accent3); }
+
+  .coord-text {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* LOADING / EMPTY STATE */
+  .state-box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--muted);
+    padding: 20px;
+    text-align: center;
+  }
+
+  .state-box .icon { font-size: 32px; }
+  .state-box p { font-size: 12px; line-height: 1.6; }
+
+  /* SOUND TOGGLE */
+  .sound-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+    width: 28px; height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+
+  .sound-btn.on { border-color: var(--safe); color: var(--safe); }
+
+  /* NEW ALERT TOAST */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--accent);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 9998;
+    transition: transform 0.3s ease;
+    pointer-events: none;
+    box-shadow: 0 4px 20px rgba(255,77,26,0.5);
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* REFRESH SPINNER */
+  .spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* LAST UPDATE */
+  .last-update {
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* NEW ROW FLASH */
+  @keyframes row-flash {
+    0% { background: rgba(255,77,26,0.25); }
+    100% { background: transparent; }
+  }
+
+  .new-row { animation: row-flash 2s ease-out; }
+
+  /* Pulse ring for HIGH confidence */
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.8; }
+    70% { transform: scale(2.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 0; }
+  }
+
+  .pulse-marker {
+    position: relative;
+  }
+
+  .pulse-marker::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(1);
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(255, 77, 26, 0.5);
+    animation: pulse-ring 1.5s ease-out infinite;
+    pointer-events: none;
+  }
+
+  /* Leaflet custom markers */
+  .fire-dot {
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo-pulse"></div>
+    <div class="title">🔥 ระบบติดตาม<span>ไฟป่า</span> เชียงใหม่–ลำพูน</div>
+  </div>
+  <div class="header-right">
+    <div class="next-update" id="nextUpdateTxt">—</div>
+    <div class="status-badge" id="statusBadge">OFFLINE</div>
+  </div>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <div id="map"></div>
+
+  <div class="sidebar">
+    <!-- API KEY -->
+    <div class="api-section">
+      <div class="api-label">⚡ NASA FIRMS MAP KEY</div>
+      <div class="api-row">
+        <input class="api-input" id="apiKey" type="text" placeholder="วาง MAP KEY ที่นี่...">
+        <button class="btn" onclick="startMonitor()">เริ่ม</button>
+      </div>
+      <div style="margin-top:6px;font-size:10px;color:var(--muted)">
+        ขอ key ฟรี: <a href="https://firms.modaps.eosdis.nasa.gov/api/area/" target="_blank" style="color:var(--accent2)">firms.modaps.eosdis.nasa.gov</a>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-num red" id="countHigh">—</div>
+        <div class="stat-label">HIGH</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num orange" id="countNominal">—</div>
+        <div class="stat-label">NOMINAL</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num yellow" id="countLow">—</div>
+        <div class="stat-label">LOW</div>
+      </div>
+    </div>
+
+    <!-- PROVINCE STATS -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--border)">
+      <div style="padding:8px 14px;border-right:1px solid var(--border)">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--accent);letter-spacing:1px;margin-bottom:3px">เชียงใหม่</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--accent)" id="countCM">—</div>
+        <div style="font-size:9px;color:var(--muted)">hotspot</div>
+      </div>
+      <div style="padding:8px 14px">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--safe);letter-spacing:1px;margin-bottom:3px">ลำพูน</div>
+        <div style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--safe)" id="countLP">—</div>
+        <div style="font-size:9px;color:var(--muted)">hotspot</div>
+      </div>
+    </div>
+
+    <!-- CONFIDENCE FILTER -->
+    <div class="filter-bar">
+      <span class="filter-label">CONF:</span>
+      <button class="filter-btn active-high" id="fHigh" onclick="toggleFilter('high')">HIGH</button>
+      <button class="filter-btn active-nominal" id="fNominal" onclick="toggleFilter('nominal')">NOMINAL</button>
+      <button class="filter-btn" id="fLow" onclick="toggleFilter('low')">LOW</button>
+      <button class="sound-btn on" id="soundBtn" onclick="toggleSound()" title="เสียงแจ้งเตือน">🔔</button>
+    </div>
+
+    <!-- PROVINCE FILTER -->
+    <div class="prov-filter" id="provFilter"></div>
+
+    <!-- TABLE HEADER -->
+    <div class="table-header">
+      <span class="table-title">HOTSPOT LOG</span>
+      <button class="btn btn-sm" onclick="fetchData()" id="refreshBtn">↻ รีเฟรช</button>
+    </div>
+
+    <!-- TABLE / STATE -->
+    <div id="tableArea" class="table-wrap">
+      <div class="state-box">
+        <div class="icon">🛰️</div>
+        <p>ใส่ NASA FIRMS MAP KEY<br>แล้วกด <strong>เริ่ม</strong> เพื่อโหลดข้อมูล</p>
+      </div>
+    </div>
+
+    <!-- LAST UPDATE -->
+    <div class="last-update">
+      <span id="lastUpdateTxt">ยังไม่ได้โหลด</span>
+      <span style="color:var(--accent2);font-size:9px">VIIRS NOAA-21 · เชียงใหม่–ลำพูน</span>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ==================== CONFIG ====================
+const BBOX = { south: 17.7, west: 97.9, north: 19.9, east: 99.6 };
+const PROVINCES = [
+  { name: 'เชียงใหม่', bounds: [[17.9,98.0],[19.8,99.5]], color: '#ff4d1a' },
+  { name: 'ลำพูน',     bounds: [[17.7,98.6],[19.0,99.3]], color: '#00e5a0' },
+];
+
+// ==================== STATE ====================
+let map, markersLayer, allData = [];
+let activeFilters = { high: true, nominal: false, low: false };
+let activeProvs = new Set(['เชียงใหม่', 'ลำพูน']);
+let soundOn = true;
+let refreshTimer = null;
+let countdown = 0;
+let knownIds = new Set();
+const REFRESH_INTERVAL = 30 * 60; // 30 min in seconds
+
+// ==================== MAP INIT ====================
+function initMap() {
+  map = L.map('map', { zoomControl: true, attributionControl: false }).setView([18.8, 98.95], 10);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  }).addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+}
+
+// ==================== PROVINCE CHIPS ====================
+function renderProvChips() {
+  const el = document.getElementById('provFilter');
+  el.innerHTML = PROVINCES.map(p => `
+    <button class="prov-chip ${activeProvs.has(p.name) ? 'active' : ''}"
+      onclick="toggleProv('${p.name}')">${p.name}</button>
+  `).join('');
+}
+
+function toggleProv(name) {
+  if (activeProvs.has(name)) activeProvs.delete(name);
+  else activeProvs.add(name);
+  renderProvChips();
+  renderAll();
+}
+
+// ==================== FILTER ====================
+function toggleFilter(level) {
+  activeFilters[level] = !activeFilters[level];
+  const btn = document.getElementById('f' + level.charAt(0).toUpperCase() + level.slice(1));
+  if (activeFilters[level]) btn.className = `filter-btn active-${level}`;
+  else btn.className = 'filter-btn';
+  renderAll();
+}
+
+// ==================== FETCH ====================
+async function fetchData() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (!key) { showToast('⚠️ กรุณาใส่ MAP KEY ก่อน'); return; }
+
+  document.getElementById('refreshBtn').innerHTML = '<span class="spin">↻</span>';
+  document.getElementById('statusBadge').className = 'status-badge';
+  document.getElementById('statusBadge').textContent = 'LOADING';
+
+  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${key}/VIIRS_NOAA21_NRT/${BBOX.west},${BBOX.south},${BBOX.east},${BBOX.north}/1`;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    parseCSV(text);
+    document.getElementById('statusBadge').className = 'status-badge live';
+    document.getElementById('statusBadge').textContent = 'LIVE';
+    document.getElementById('lastUpdateTxt').textContent = 'อัปเดต: ' + new Date().toLocaleTimeString('th-TH');
+  } catch(e) {
+    document.getElementById('statusBadge').textContent = 'ERROR';
+    showToast('❌ โหลดข้อมูลไม่ได้: ' + e.message);
+  }
+
+  document.getElementById('refreshBtn').innerHTML = '↻ รีเฟรช';
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) { showToast('ไม่มีข้อมูล hotspot ในพื้นที่'); return; }
+
+  const headers = lines[0].split(',');
+  const latIdx = headers.indexOf('latitude');
+  const lonIdx = headers.indexOf('longitude');
+  const brightIdx = headers.indexOf('bright_ti4');
+  const confIdx = headers.indexOf('confidence');
+  const dateIdx = headers.indexOf('acq_date');
+  const timeIdx = headers.indexOf('acq_time');
+
+  const newData = [];
+  let newCount = 0;
+  const nowUTC = Date.now();
+  const EIGHT_HOURS = 4 * 60 * 60 * 1000; // 4 ชั่วโมง
+
+  lines.slice(1).forEach((line, i) => {
+    const cols = line.split(',');
+    if (cols.length < 4) return;
+    const lat = parseFloat(cols[latIdx]);
+    const lon = parseFloat(cols[lonIdx]);
+    const bright = parseFloat(cols[brightIdx]) || 0;
+    const conf = cols[confIdx]?.trim().toLowerCase() || 'l';
+    const date = cols[dateIdx]?.trim() || '';
+    const time = cols[timeIdx]?.trim() || '';
+    const id = `${lat.toFixed(4)}_${lon.toFixed(4)}_${date}_${time}`;
+    const { dist, prov } = getDistrict(lat, lon);
+
+    // กรอง LOW ออก
+    if (conf === 'l') return;
+
+    // กรองเก่าเกิน 4 ชั่วโมง (UTC)
+    if (date && time) {
+      const h = time.padStart(4,'0');
+      const acqUTC = new Date(`${date}T${h.slice(0,2)}:${h.slice(2)}:00Z`).getTime();
+      if (nowUTC - acqUTC > EIGHT_HOURS) return;
+    }
+
+    if (!knownIds.has(id)) { knownIds.add(id); newCount++; }
+
+    newData.push({ lat, lon, bright, conf, date, time, id, prov, dist });
+  });
+
+  allData = newData;
+  renderAll();
+
+  if (newCount > 0) {
+    updateStats();
+    if (soundOn && knownIds.size > newData.length) {
+      playAlert();
+      showToast(`🔥 พบ hotspot ใหม่ ${newCount} จุด!`);
+    }
+  }
+}
+
+const DISTRICTS = [
+  // เชียงใหม่ 25 อำเภอ
+  { name: 'เมืองเชียงใหม่', prov: 'เชียงใหม่', s:18.68, w:98.85, n:18.92, e:99.08 },
+  { name: 'จอมทอง',         prov: 'เชียงใหม่', s:18.28, w:98.40, n:18.62, e:98.75 },
+  { name: 'แม่แจ่ม',        prov: 'เชียงใหม่', s:18.30, w:98.10, n:18.68, e:98.58 },
+  { name: 'เชียงดาว',       prov: 'เชียงใหม่', s:19.20, w:98.78, n:19.65, e:99.18 },
+  { name: 'ดอยสะเก็ด',      prov: 'เชียงใหม่', s:18.80, w:99.02, n:19.08, e:99.28 },
+  { name: 'แม่แตง',         prov: 'เชียงใหม่', s:18.98, w:98.65, n:19.32, e:99.12 },
+  { name: 'แม่ริม',         prov: 'เชียงใหม่', s:18.85, w:98.75, n:19.12, e:99.02 },
+  { name: 'สะเมิง',         prov: 'เชียงใหม่', s:18.72, w:98.48, n:19.02, e:98.85 },
+  { name: 'ฝาง',            prov: 'เชียงใหม่', s:19.62, w:99.05, n:19.95, e:99.45 },
+  { name: 'แม่อาย',         prov: 'เชียงใหม่', s:19.62, w:99.30, n:19.92, e:99.62 },
+  { name: 'พร้าว',          prov: 'เชียงใหม่', s:19.22, w:99.05, n:19.58, e:99.48 },
+  { name: 'สันป่าตอง',      prov: 'เชียงใหม่', s:18.40, w:98.78, n:18.75, e:99.08 },
+  { name: 'สันกำแพง',       prov: 'เชียงใหม่', s:18.68, w:99.02, n:18.90, e:99.28 },
+  { name: 'สันทราย',        prov: 'เชียงใหม่', s:18.85, w:98.92, n:19.08, e:99.18 },
+  { name: 'หางดง',          prov: 'เชียงใหม่', s:18.55, w:98.78, n:18.80, e:99.02 },
+  { name: 'ฮอด',            prov: 'เชียงใหม่', s:17.82, w:98.20, n:18.32, e:98.68 },
+  { name: 'ดอยเต่า',        prov: 'เชียงใหม่', s:17.98, w:98.48, n:18.38, e:98.85 },
+  { name: 'อมก๋อย',         prov: 'เชียงใหม่', s:17.52, w:97.85, n:18.32, e:98.48 },
+  { name: 'สารภี',          prov: 'เชียงใหม่', s:18.55, w:98.90, n:18.72, e:99.10 },
+  { name: 'เวียงแหง',       prov: 'เชียงใหม่', s:19.45, w:98.55, n:19.88, e:98.98 },
+  { name: 'ไชยปราการ',      prov: 'เชียงใหม่', s:19.52, w:98.95, n:19.78, e:99.22 },
+  { name: 'แม่วาง',         prov: 'เชียงใหม่', s:18.38, w:98.55, n:18.68, e:98.88 },
+  { name: 'แม่ออน',         prov: 'เชียงใหม่', s:18.65, w:99.10, n:18.90, e:99.45 },
+  { name: 'ดอยหล่อ',        prov: 'เชียงใหม่', s:18.32, w:98.68, n:18.58, e:98.95 },
+  { name: 'กัลยาณิวัฒนา',   prov: 'เชียงใหม่', s:18.95, w:98.12, n:19.38, e:98.65 },
+  // ลำพูน 8 อำเภอ
+  { name: 'เมืองลำพูน',     prov: 'ลำพูน', s:18.45, w:98.90, n:18.72, e:99.18 },
+  { name: 'แม่ทา',          prov: 'ลำพูน', s:18.50, w:99.05, n:18.80, e:99.45 },
+  { name: 'บ้านโฮ่ง',       prov: 'ลำพูน', s:18.12, w:98.68, n:18.48, e:99.00 },
+  { name: 'ลี้',            prov: 'ลำพูน', s:17.55, w:98.55, n:18.22, e:99.15 },
+  { name: 'ทุ่งหัวช้าง',    prov: 'ลำพูน', s:18.05, w:98.88, n:18.32, e:99.22 },
+  { name: 'ป่าซาง',         prov: 'ลำพูน', s:18.42, w:98.82, n:18.65, e:99.08 },
+  { name: 'บ้านธิ',         prov: 'ลำพูน', s:18.60, w:99.00, n:18.80, e:99.20 },
+  { name: 'เวียงหนองล่อง',  prov: 'ลำพูน', s:18.18, w:98.68, n:18.48, e:98.98 },
+  // ลำปางบางส่วนที่ติดเชียงใหม่-ลำพูน
+  { name: 'เกาะคา',         prov: 'ลำปาง', s:17.98, w:99.18, n:18.30, e:99.52 },
+  { name: 'เสริมงาม',       prov: 'ลำปาง', s:17.90, w:99.05, n:18.22, e:99.38 },
+  { name: 'เถิน',           prov: 'ลำปาง', s:17.48, w:99.05, n:17.98, e:99.48 },
+  { name: 'แม่พริก',        prov: 'ลำปาง', s:17.38, w:98.88, n:17.72, e:99.22 },
+  { name: 'สบปราบ',         prov: 'ลำปาง', s:17.78, w:99.22, n:18.15, e:99.58 },
+  { name: 'ห้างฉัตร',       prov: 'ลำปาง', s:18.28, w:99.12, n:18.62, e:99.52 },
+  { name: 'เมืองลำปาง',     prov: 'ลำปาง', s:18.15, w:99.35, n:18.48, e:99.68 },
+  { name: 'แม่ทะ',          prov: 'ลำปาง', s:18.05, w:99.45, n:18.40, e:99.78 },
+];
+
+function getProvince(lat, lon) {
+  for (const d of DISTRICTS) {
+    if (lat >= d.s && lat <= d.n && lon >= d.w && lon <= d.e) return d.prov;
+  }
+  return 'อื่นๆ';
+}
+
+function getDistrict(lat, lon) {
+  for (const d of DISTRICTS) {
+    if (lat >= d.s && lat <= d.n && lon >= d.w && lon <= d.e) return { dist: d.name, prov: d.prov };
+  }
+  return { dist: '—', prov: 'อื่นๆ' };
+}
+
+// ==================== RENDER ====================
+function renderAll() {
+  markersLayer.clearLayers();
+  const filtered = allData.filter(d => {
+    const confOk = (d.conf === 'h' && activeFilters.high) ||
+                   (d.conf === 'n' && activeFilters.nominal) ||
+                   (d.conf === 'l' && activeFilters.low);
+    const provOk = activeProvs.has(d.prov) || d.prov === 'อื่นๆ';
+    return confOk && provOk;
+  });
+
+  filtered.forEach(d => {
+    const color = d.conf === 'h' ? '#ff4d1a' : d.conf === 'n' ? '#ff8c00' : '#ffcc00';
+    const size = d.conf === 'h' ? 12 : d.conf === 'n' ? 8 : 6;
+    let marker;
+    if (d.conf === 'h') {
+      const icon = L.divIcon({
+        className: '',
+        html: `<div class="pulse-marker" style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.5);position:relative;"></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size/2, size/2]
+      });
+      marker = L.marker([d.lat, d.lon], { icon });
+    } else {
+      marker = L.circleMarker([d.lat, d.lon], {
+        radius: size, fillColor: color, color: 'rgba(255,255,255,0.4)',
+        weight: 1, opacity: 1, fillOpacity: 0.85
+      });
+    }
+    marker.bindPopup(`
+      <div style="font-family:'Sarabun',sans-serif;font-size:12px;min-width:160px">
+        <b style="color:${color}">🔥 ${d.conf === 'h' ? 'HIGH' : d.conf === 'n' ? 'NOMINAL' : 'LOW'} Confidence</b><br>
+        <span style="color:#888;font-size:10px;font-family:monospace">${d.lat.toFixed(4)}°N, ${d.lon.toFixed(4)}°E</span><br>
+        <b>จังหวัด:</b> ${d.prov}<br>
+        <b>อำเภอ:</b> ${d.dist || '—'}<br>
+        <b>Brightness:</b> ${d.bright.toFixed(1)} K<br>
+        <b>เวลา:</b> ${d.date} ${toThaiTime(d.time)} (ไทย)<br>
+        <a href="https://maps.google.com/maps?q=${d.lat},${d.lon}" target="_blank" style="color:#ff8c00">📍 เปิด Google Maps</a>
+      </div>
+    `);
+    marker.addTo(markersLayer);
+  });
+
+  renderTable(filtered);
+  updateStats();
+}
+
+function renderTable(data) {
+  if (data.length === 0) {
+    document.getElementById('tableArea').innerHTML = `
+      <div class="state-box">
+        <div class="icon">✅</div>
+        <p>ไม่พบ hotspot<br>ในพื้นที่ที่เลือก</p>
+      </div>`;
+    return;
+  }
+
+  const rows = data.slice(0, 200).map(d => {
+    const confClass = d.conf === 'h' ? 'conf-h' : d.conf === 'n' ? 'conf-n' : 'conf-l';
+    const confLabel = d.conf === 'h' ? 'HIGH' : d.conf === 'n' ? 'NOM' : 'LOW';
+    const timeStr = d.time ? toThaiTime(d.time) : '';
+    const provColor = d.prov === 'เชียงใหม่' ? 'var(--accent)' : d.prov === 'ลำพูน' ? 'var(--safe)' : '#38bdf8';
+    const location = d.dist && d.dist !== '—' ? `${d.prov} (${d.dist})` : d.prov;
+    return `<tr onclick="flyTo(${d.lat},${d.lon})" title="คลิกเพื่อดูบนแผนที่">
+      <td><span class="conf-badge ${confClass}">${confLabel}</span></td>
+      <td class="coord-text" style="color:var(--accent2)">${timeStr}</td>
+      <td style="font-size:10px;color:${provColor}">${location}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('tableArea').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>NOW</th><th>เวลา (ไทย)</th><th>จังหวัด (อำเภอ)</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function updateStats() {
+  const h = allData.filter(d => d.conf === 'h').length;
+  const n = allData.filter(d => d.conf === 'n').length;
+  const l = allData.filter(d => d.conf === 'l').length;
+  document.getElementById('countHigh').textContent = h || '0';
+  document.getElementById('countNominal').textContent = n || '0';
+  document.getElementById('countLow').textContent = l || '0';
+  document.getElementById('countCM').textContent = allData.filter(d => d.prov === 'เชียงใหม่').length || '0';
+  document.getElementById('countLP').textContent = allData.filter(d => d.prov === 'ลำพูน').length || '0';
+}
+
+function toThaiTime(time) {
+  if (!time) return '';
+  const h = time.padStart(4, '0');
+  const utcH = parseInt(h.slice(0,2));
+  const utcM = h.slice(2);
+  const thaiH = (utcH + 7) % 24;
+  return `${String(thaiH).padStart(2,'0')}:${utcM} น.`;
+}
+
+function flyTo(lat, lon) {
+  map.flyTo([lat, lon], 13, { duration: 1.2 });
+}
+
+// ==================== SOUND ====================
+function toggleSound() {
+  soundOn = !soundOn;
+  const btn = document.getElementById('soundBtn');
+  btn.className = soundOn ? 'sound-btn on' : 'sound-btn';
+  btn.textContent = soundOn ? '🔔' : '🔕';
+}
+
+function playAlert() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1100, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.2);
+      gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + i * 0.2 + 0.05);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + i * 0.2 + 0.15);
+      osc.start(ctx.currentTime + i * 0.2);
+      osc.stop(ctx.currentTime + i * 0.2 + 0.2);
+    });
+  } catch(e) {}
+}
+
+// ==================== TOAST ====================
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ==================== COUNTDOWN ====================
+function startCountdown() {
+  countdown = REFRESH_INTERVAL;
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    countdown--;
+    const m = Math.floor(countdown / 60);
+    const s = countdown % 60;
+    document.getElementById('nextUpdateTxt').textContent =
+      `รีเฟรชใน ${m}:${String(s).padStart(2,'0')}`;
+    if (countdown <= 0) { fetchData(); startCountdown(); }
+  }, 1000);
+}
+
+// ==================== START ====================
+function startMonitor() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (!key) { showToast('⚠️ กรุณาใส่ MAP KEY ก่อน'); return; }
+  localStorage.setItem('firms_key', key);
+  fetchData();
+  startCountdown();
+}
+
+// ==================== INIT ====================
+function loadLeaflet(cb) {
+  if (window.L) { cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  s.onload = cb;
+  s.onerror = () => showToast('❌ โหลด Leaflet ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ต');
+  document.head.appendChild(s);
+}
+
+window.addEventListener('load', () => {
+  loadLeaflet(() => {
+    initMap();
+    renderProvChips();
+    const saved = localStorage.getItem('firms_key');
+    if (saved) {
+      document.getElementById('apiKey').value = saved;
+      showToast('💾 โหลด API key จากที่บันทึกไว้');
+    }
+  });
+});
+</script>
+</body>
+</html>
